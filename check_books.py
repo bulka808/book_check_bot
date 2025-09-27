@@ -90,7 +90,8 @@ def book_filter(_, message: types.Message):
         chapter=data["chapter"],
     )
 
-    message.book = book
+    # так делать не хорошо, но пойдет
+    message.book = book # type: ignore
 
     return True
 
@@ -228,14 +229,14 @@ async def check(client: Client, message: types.Message):
         info = "пусто("
     else:
         session = SessionLocal()
-        new = "__**Новое:**__\n" + "".join(
+        new = f"__**Новое: {len(NEW)}**__\n" + "".join(
             f"(ID:{book.id})\n__**Навзвание:**__ {book.title}\n__**Автор:**__ {book.author}\
-            \n__**Серия:**__ {book.series}\n__**Глава:**__ {book.chapter}\n"
+            \n__**Серия:**__ {book.series}\n__**Глава:**__ {book.chapter}\n\n"
             for new_id in NEW
             for book in session.query(Book).filter_by(id=new_id)
-        )
+        ) 
         session.close
-
+    
         info = "".join(
             f"(ID:{book.id})\n__**Название:**__ {book.title}\n__**Автор:**__ {book.author}\
             \n__**Серия:**__ {book.series}\n__**Глава:**__ {book.chapter}\n\n"
@@ -253,7 +254,7 @@ async def check(client: Client, message: types.Message):
 
 @bot.on_message(filters=book_filter)
 async def get_books_data(client: Client, message: types.Message):
-    book: Book = message.book
+    book: Book = message.book # type: ignore
 
     session = SessionLocal()
     existing = (
