@@ -62,9 +62,18 @@ SessionLocal = sessionmaker(bind=engine)
 # TODO сделать справку
 
 
+def pretty(book: Book) -> str:
+    book_info = f"(ID:{book.id})\
+        \n<i><b>Название:</b></i> {book.title}\
+        \n<i><b>Автор:</b></i> {book.author}\
+        \n<i><b>Серия:</b></i> {book.series}\
+        \n<i><b>Глава:</b></i> {book.chapter}\n\n"
+    return book_info
+
+
 # недо фильтр который сует книжку внутрь сообщения
 # TODO сделать нормальную филтрацию, поддержку книг которые пока недоступны
-def book_filter(_, message: types.Message):
+def book_filter(_, message: types.Message) -> bool:
     if (
         message.caption is None
         or ("По:" not in message.caption and "Автор:" not in message.caption)
@@ -91,12 +100,16 @@ def book_filter(_, message: types.Message):
     )
 
     # так делать не хорошо, но пойдет
-    message.book = book # type: ignore
+    message.book = book  # type: ignore
 
     return True
 
 
 async def delete_messages_from_list(client: Client, message_list: list[types.Message]):
+    """
+    принимает client и список сообщений от него же, удаляет эти сообщения
+    """
+
     messages_in_chats: dict[int, list[int]] = {}
     for message in message_list:
         if message.chat.id not in messages_in_chats:
@@ -109,35 +122,39 @@ async def delete_messages_from_list(client: Client, message_list: list[types.Mes
 
 
 @bot.on_message(filters=filters.command(commands=["add"], prefixes="!"))
-async def add(client: Client, message: types.Message):
-    session = SessionLocal()
-    if (
-        message.reply_to_message is not None
-        and message.reply_to_message.text is not None
-        and message.reply_to_message.entities is not None
-    ):
-        for entity in message.reply_to_message.entities:
-            if entity.type == MessageEntityType.BOT_COMMAND:
-                txt = message.reply_to_message.text
-                chat_id = message.reply_to_message.chat.id
-                chat_title = message.reply_to_message.chat.title
+async def add(_: Client, message: types.Message):
+    """
+    добавляет команду для получения информации о книге (пока что никак не связано с книгой)
+    """
 
-                print(txt)
+    with SessionLocal() as session:
+        if (
+            message.reply_to_message is not None
+            and message.reply_to_message.text is not None
+            and message.reply_to_message.entities is not None
+        ):
+            for entity in message.reply_to_message.entities:
+                if entity.type == MessageEntityType.BOT_COMMAND:
+                    txt = message.reply_to_message.text
+                    chat_id = message.reply_to_message.chat.id
+                    chat_title = message.reply_to_message.chat.title
 
-                bookcmd = BookCmd(chat_id=chat_id, chat_title=chat_title, cmd=txt)
-                
-                session.add(bookcmd)
-                session.commit()
-                await message.react(emoji="👍")
-    session.close()
+                    print(txt)
+
+                    bookcmd = BookCmd(chat_id=chat_id, chat_title=chat_title, cmd=txt)
+
+                    session.add(bookcmd)
+                    session.commit()
+                    await message.react(emoji="👍")
 
 
 @bot.on_message(filters=filters.command(commands=["list"], prefixes="!"))
 async def commands_list(client: Client, message: types.Message):
-    session = SessionLocal()
-
-    commands = session.query(BookCmd).all()
-    session.close()
+    """
+    вывод списка всех команд с информацией о них из бд
+    """
+    with SessionLocal() as session:
+        commands = session.query(BookCmd).all()
 
     if not commands:
         await message.reply(text="Пусто..?")
@@ -153,65 +170,65 @@ async def commands_list(client: Client, message: types.Message):
 
 @bot.on_message(filters=filters.command(commands=["del_command"], prefixes="!"))
 async def deleteCommand(client: Client, message: types.Message):
+    """
+    удаляет команду, которая получает информацию о книге (для прекращения отслеживания)
+    """
     if len(message.command) < 2:
         await message.reply(text="Неверное число аргументов")
         return
 
     arg = message.command[1]
 
-    session = SessionLocal()
-
-    session.query(BookCmd).filter(BookCmd.id == arg).delete()
-    session.commit()
-    session.close()
+    with SessionLocal() as session:
+        session.query(BookCmd).filter(BookCmd.id == arg).delete()
+        session.commit()
 
     await message.react(emoji="👍")
 
 
 @bot.on_message(filters=filters.command(commands=["del_book"], prefixes="!"))
 async def deleteBook(client: Client, message: types.Message):
+    """
+    удаляет из бд информацию о книге
+    """
     if len(message.command) < 2:
         await message.reply(text="Неверное число аргументов")
         return
 
     arg = message.command[1]
 
-    session = SessionLocal()
-
-    session.query(Book).filter(Book.id == arg).delete()
-    session.commit()
-    session.close()
+    with SessionLocal() as session:
+        session.query(Book).filter(Book.id == arg).delete()
+        session.commit()
 
     await message.react(emoji="👍")
 
 
-# просто вывод
 @bot.on_message(filters=filters.command(commands=["show"], prefixes="!"))
 async def showBooks(client: Client, message: types.Message):
-    session = SessionLocal()
-
-    books = session.query(Book).all()
-    session.close()
+    """
+    просто выводит список книг с информацией о них
+    """
+    with SessionLocal() as session:
+        books = session.query(Book).all()
 
     if not books:
         info = "пусто("
     else:
-        info = "".join(
-            f"(ID:{book.id})\n__**Название:**__ {book.title}\n__**Автор:**__ {book.author}\
-            \n__**Серия:**__ {book.series}\n__**Глава:**__ {book.chapter}\n\n"
-            for book in books
-        )
+        info = "".join(pretty(book) for book in books)
     await client.send_message(
-        text=info, chat_id=message.from_user.id, parse_mode=ParseMode.MARKDOWN
+        text=info, chat_id=message.from_user.id, parse_mode=ParseMode.HTML
     )
 
 
-# проверка и вывод
 @bot.on_message(filters=filters.command(commands=["check"], prefixes="!"))
 async def check(client: Client, message: types.Message):
-    session = SessionLocal()
-    commands = session.query(BookCmd).all()
-    session.close()
+    """
+    проверяет все книги по списку команд, после чего выводит новое(изменения) и общий список книг
+    """
+    with SessionLocal() as session:
+        commands = session.query(BookCmd).all()
+        books = session.query(Book).all()
 
     messages = []
     for command in commands:
@@ -221,26 +238,18 @@ async def check(client: Client, message: types.Message):
 
     await asyncio.sleep(2)
 
-    session = SessionLocal()
-    books = session.query(Book).all()
-    session.close()
-
     if not books:
         info = "пусто("
     else:
-        session = SessionLocal()
-        new = f"__**Новое: {len(NEW)}**__\n" + "".join(
-            f"(ID:{book.id})\n__**Навзвание:**__ {book.title}\n__**Автор:**__ {book.author}\
-            \n__**Серия:**__ {book.series}\n__**Глава:**__ {book.chapter}\n\n"
-            for new_id in NEW
-            for book in session.query(Book).filter_by(id=new_id)
-        ) 
-        session.close
-    
-        info = "".join(
-            f"(ID:{book.id})\n__**Название:**__ {book.title}\n__**Автор:**__ {book.author}\
-            \n__**Серия:**__ {book.series}\n__**Глава:**__ {book.chapter}\n\n"
-            for book in books
+        with SessionLocal() as session:
+            new = f"<i><b>Новое:</b></i> {len(NEW)}\n" + "".join(
+                pretty(book)
+                for new_id in NEW
+                for book in session.query(Book).filter_by(id=new_id)
+            )
+
+        info = f"<i><b>Сохраненные книги:</b></i> {len(books)}\n\n" + "".join(
+            pretty(book) for book in books
         )
 
         msg_txt = new + "\n" + info if len(NEW) > 0 else info
@@ -248,33 +257,35 @@ async def check(client: Client, message: types.Message):
         NEW.clear()
 
     await client.send_message(
-        text=msg_txt, chat_id=message.from_user.id, parse_mode=ParseMode.MARKDOWN
+        text=msg_txt, chat_id=message.from_user.id, parse_mode=ParseMode.HTML
     )
 
 
 @bot.on_message(filters=book_filter)
 async def get_books_data(client: Client, message: types.Message):
-    book: Book = message.book # type: ignore
+    """
+    парсим книги из сообщений
+    """
 
-    session = SessionLocal()
-    existing = (
-        session.query(Book)
-        .filter_by(series=book.series, author=book.author, title=book.title)
-        .first()
-    )
-    # проверяем есть ли книга в бд, если нет то добавляем, а если есть проверяем главу
-    # если вышла новая то обновляем и добавляем id в список
-    if existing is None:
-        session.add(book)
-        session.commit()
-        print("New:", book)
-    elif existing.chapter != book.chapter:
-        existing.chapter = book.chapter
-        session.commit()
-        print("Updated:", existing)
-        NEW.append(existing.id)
+    book: Book = message.book  # type: ignore
 
-    session.close()
+    with SessionLocal() as session:
+        existing = (
+            session.query(Book)
+            .filter_by(series=book.series, author=book.author, title=book.title)
+            .first()
+        )
+        # проверяем есть ли книга в бд, если нет то добавляем, а если есть проверяем главу
+        # если вышла новая то обновляем и добавляем id в список
+        if existing is None:
+            session.add(book)
+            session.commit()
+            print("New:", book)
+        elif existing.chapter != book.chapter:
+            existing.chapter = book.chapter
+            session.commit()
+            print("Updated:", existing)
+            NEW.append(existing.id)
 
 
 bot.run()
