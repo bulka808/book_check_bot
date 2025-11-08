@@ -288,4 +288,5 @@ async def get_books_data(client: Client, message: types.Message):
             NEW.append(existing.id)
 
 
-bot.run()
+if __name__ == "__main__":
+    bot.run()
